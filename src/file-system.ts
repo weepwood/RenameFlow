@@ -139,6 +139,8 @@ export async function executeRenameBatch(
   const operations: RenameOperation[] = []
   const modes = new Set<'native-move' | 'copy-delete'>()
 
+  // Stage every source under a unique temporary name first. This makes swaps,
+  // case-only changes and rename chains safe because all final names are freed.
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]
     const temporaryName = `.renameflow-${crypto.randomUUID()}.tmp`
@@ -154,6 +156,7 @@ export async function executeRenameBatch(
         mode: result.mode,
       })
     } catch (error) {
+      // Roll back everything already staged before reporting the batch failure.
       for (const stagedItem of [...staged].reverse()) {
         try {
           await rollbackOperation({
@@ -166,7 +169,7 @@ export async function executeRenameBatch(
             resultingHandle: stagedItem.handle,
           })
         } catch {
-          // Recovery failure is surfaced by the returned operation records.
+          // A later operation record will surface recovery work to the user.
         }
       }
       return {
@@ -208,6 +211,8 @@ export async function executeRenameBatch(
         newName: item.original.nextName,
       })
     } catch (error) {
+      // Try to recover this one item to its original name. Other staged files
+      // remain independent and can still finish.
       let recoveryError = ''
       try {
         await rollbackOperation({
